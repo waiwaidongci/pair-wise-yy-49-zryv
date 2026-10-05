@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { page } from '$app/state'
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
   import { curriculumStore } from '$lib/stores'
@@ -6,7 +7,19 @@
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
   })
-  let { children } = $props()
+  let { children, data } = $props()
+  // 组件初始化（SSR 与首屏客户端）即灌入服务端权威快照，保证首屏 HTML 版本号就是服务端版本；
+  // untrack 明确表达只取本次挂载的初始快照，后续导航数据由下面的 effect 跟进。
+  const initial = untrack(() => data?.snapshot)
+  let hydratedVersion = initial?.version ?? -1
+  if (initial) curriculumStore.hydrate(initial)
+  $effect(() => {
+    const snapshot = data?.snapshot
+    if (snapshot && snapshot.version > hydratedVersion) {
+      hydratedVersion = snapshot.version
+      curriculumStore.hydrate(snapshot)
+    }
+  })
   let mobileOpen = $state(false)
   const nav = [
     { href: '/', label: '建设总览', icon: '总' },
@@ -27,7 +40,11 @@
           <a href={item.href} class:active={page.url.pathname === item.href} onclick={() => mobileOpen = false}><span>{item.icon}</span>{item.label}</a>
         {/each}
       </nav>
-      <div class="side-note"><strong>{$curriculumStore.locked ? '版本已锁定' : '草稿自动保存'}</strong><span>当前版本 {$curriculumStore.revision}</span></div>
+      <div class="side-note">
+        <strong>{$curriculumStore.phase === 'draft' ? '草稿修订中' : $curriculumStore.phase === 'locked' ? '版本已锁定' : '版本已发布'}</strong>
+        <span>当前版本 {$curriculumStore.revision} · 草稿版本号 v{$curriculumStore.version}</span>
+        {#if $curriculumStore.syncState !== 'ready'}<span class="sync sync-{$curriculumStore.syncState}">{$curriculumStore.syncState === 'syncing' ? '提交中…' : $curriculumStore.syncState === 'stale' ? '版本过期已回退' : '写入待恢复'}</span>{/if}
+      </div>
     </aside>
     <main>
       <header class="mobile-header"><button onclick={() => mobileOpen = !mobileOpen}>菜单</button><strong>{page.data?.title ?? '课程标准映射'}</strong></header>
@@ -51,6 +68,10 @@
   .side-note { margin: auto 12px 14px; padding: 12px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(255,255,255,.04); }
   .side-note strong, .side-note span { display: block; font-size: 11px; }
   .side-note span { margin-top: 5px; color: #9eb2b5; }
+  .side-note span.sync { padding: 3px 6px; border-radius: 5px; font-size: 10px; }
+  .side-note span.sync-syncing { color: #ffe3ae; }
+  .side-note span.sync-stale { color: #ffc4b8; }
+  .side-note span.sync-error { color: #ff9a86; }
   main { min-width: 0; margin-left: 242px; }
   .mobile-header { display: none; }
   @media (max-width: 800px) {

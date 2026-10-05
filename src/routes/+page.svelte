@@ -2,10 +2,9 @@
   import { createQuery } from '@tanstack/svelte-query'
   import { browser } from '$app/environment'
   import { curriculumStore, validateCurriculum } from '$lib/stores'
-  import type { GraphNode, Mapping, ReviewItem } from '$lib/seed'
+  import type { Snapshot } from '$lib/versioning/types'
 
-  type CurriculumResponse = { nodes: GraphNode[]; mappings: Mapping[]; reviewItems: ReviewItem[]; updatedAt: string }
-  const query = createQuery<CurriculumResponse>(() => ({
+  const query = createQuery<Snapshot>(() => ({
     queryKey: ['curriculum'],
     enabled: browser,
     queryFn: async () => {
@@ -13,29 +12,34 @@
       return response.json()
     },
   }))
+  $effect(() => {
+    if (query.data) curriculumStore.hydrate(query.data)
+  })
   const issues = $derived(validateCurriculum($curriculumStore))
   const reviewOpen = $derived($curriculumStore.reviewItems.filter((item) => item.status === '待审阅').length)
-  const covered = $derived($curriculumStore.nodes.filter((node) => node.type === '毕业要求' && $curriculumStore.mappings.some((mapping) => mapping.source === node.id)).length)
+  const reviewInvalid = $derived($curriculumStore.reviewItems.filter((item) => item.status === '已失效').length)
+  const coverageRows = $derived($curriculumStore.coverage)
+  const covered = $derived(coverageRows.filter((row) => row.covered).length)
 </script>
 
 <svelte:head><title>课程标准映射总览</title></svelte:head>
 
 <section class="page">
   <div class="page-head">
-    <div><p class="eyebrow">CURRICULUM REFORM / 课程改革</p><h1>专业课程图谱总览</h1><p class="muted">从培养目标到考核证据的完整映射，当前数据由 SvelteKit API 与 TanStack Query 提供。</p></div>
+    <div><p class="eyebrow">CURRICULUM REFORM / 课程改革</p><h1>专业课程图谱总览</h1><p class="muted">课程、毕业要求与审阅意见围绕服务端同一份版本工作，当前为 {$curriculumStore.revision}（v{$curriculumStore.version}）。</p></div>
     <div class="actions"><a class="btn-secondary" href="/matrix">查看图谱</a><a class="btn-primary" href="/review">处理审阅</a></div>
   </div>
 
   <div class="metric-grid">
-    <article class="metric"><span>培养目标</span><strong>{$curriculumStore.nodes.filter((node) => node.type === '目标').length}</strong><small>2 条毕业要求主链</small></article>
-    <article class="metric"><span>毕业要求覆盖</span><strong>{covered}/{$curriculumStore.nodes.filter((node) => node.type === '毕业要求').length}</strong><small>{issues.filter((issue) => issue.severity === '错误').length} 个阻断缺口</small></article>
-    <article class="metric"><span>课程映射</span><strong>{$curriculumStore.mappings.length}</strong><small>含前置、教学与考核</small></article>
-    <article class="metric"><span>待审阅提交</span><strong style="color:#b45c34">{reviewOpen}</strong><small>院系审阅队列</small></article>
+    <article class="metric"><span>培养目标</span><strong>{$curriculumStore.nodes.filter((node) => node.type === '目标').length}</strong><small>{$curriculumStore.nodes.filter((node) => node.type === '毕业要求').length} 条毕业要求主链</small></article>
+    <article class="metric"><span>毕业要求覆盖（服务端）</span><strong>{covered}/{coverageRows.length}</strong><small>{issues.filter((issue) => issue.severity === '错误').length} 个阻断缺口</small></article>
+    <article class="metric"><span>课程映射</span><strong>{$curriculumStore.mappings.length}</strong><small>{$curriculumStore.phase === 'locked' ? '版本已锁定，映射冻结' : '草稿期映射可改'}</small></article>
+    <article class="metric"><span>待审阅提交</span><strong style="color:#b45c34">{reviewOpen}</strong><small>{reviewInvalid} 项因引用变更失效重算</small></article>
   </div>
 
   <div class="overview-grid">
     <section class="panel">
-      <div class="panel-head"><h3>培养目标达成链</h3>{#if query.data}<span class="muted">数据更新 {query.data.updatedAt.slice(11,16)}</span>{/if}</div>
+      <div class="panel-head"><h3>培养目标达成链</h3>{#if $curriculumStore.serverTime}<span class="muted">服务端版本 {$curriculumStore.serverTime.slice(11,16)}</span>{/if}</div>
       <div class="chain">
         {#each $curriculumStore.nodes.filter((node) => node.type === '目标') as objective}
           <article>
@@ -63,7 +67,10 @@
         {/each}
         {#if issues.length === 0}<div class="empty">未发现覆盖缺口或重复映射。</div>{/if}
       </div>
-      <div class="hint-box"><strong>当前草稿</strong><p>{$curriculumStore.draft}</p></div>
+      <div class="hint-box">
+        <strong>版本工作区</strong>
+        <p>{$curriculumStore.revision} · 草稿版本 v{$curriculumStore.version} · {$curriculumStore.phase === 'draft' ? '草稿修订中' : $curriculumStore.phase === 'locked' ? '已锁定' : '已发布'}；过期提交会被退回，发布基线保留快照可查。</p>
+      </div>
     </aside>
   </div>
 </section>
