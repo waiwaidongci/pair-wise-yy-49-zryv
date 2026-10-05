@@ -1,49 +1,43 @@
 import { writable } from 'svelte/store'
-import { browser } from '$app/environment'
-import type { GraphNode, Mapping, ReviewItem } from './seed'
-import { seedState } from './seed'
+import type { View } from './server/curriculum'
+import type { GraphNode, Mapping } from './seed'
 
-type CurriculumState = {
-  nodes: GraphNode[]
-  mappings: Mapping[]
-  reviewItems: ReviewItem[]
-  revision: string
-  locked: boolean
-  draft: string
+/**
+ * 客户端状态只是服务端版本的只读镜像（缓存）。
+ * 不再各自在 localStorage 存一份草稿：所有写入都走服务端版本校验，
+ * 成功后用服务端返回的最新 View 整体替换，保证课程、毕业要求、审阅意见围绕同一份版本。
+ */
+export type CurriculumState = View
+
+const empty: CurriculumState = {
+  version: 1,
+  revision: 'R12',
+  locked: false,
+  draft: '',
+  nodes: [],
+  mappings: [],
+  reviewItems: [],
+  coverage: [],
+  snapshots: [],
+  rejectedCount: 0,
 }
 
-const saved = browser ? localStorage.getItem('curriculum-map-draft-v1') : null
-const initial: CurriculumState = saved ? JSON.parse(saved) : structuredClone(seedState)
-
 function createCurriculumStore() {
-  const { subscribe, update, set } = writable<CurriculumState>({ ...initial, draft: initial.draft ?? 'C-308 对 GR-06 的案例证据不足，需补充评分记录。' })
+  const { subscribe, set, update } = writable<CurriculumState>(empty)
   return {
     subscribe,
-    set,
-    update,
+    /** 用服务端返回的最新版本整体替换客户端镜像。 */
+    hydrate(view: View) {
+      set(view)
+    },
+    /** 拖拽节点仅为本地视图调整，不涉及内容变更，不触发版本校验与失效重算。 */
     moveNode(id: string, x: number, y: number) {
       update((state) => ({ ...state, nodes: state.nodes.map((node) => (node.id === id ? { ...node, x, y } : node)) }))
-    },
-    addMapping(source: string, target: string, relation: Mapping['relation'], weight: number) {
-      update((state) => ({ ...state, mappings: [...state.mappings, { id: `M-${Date.now()}`, source, target, relation, weight }] }))
-    },
-    updateReview(id: string, status: ReviewItem['status'], comment: string) {
-      update((state) => ({ ...state, reviewItems: state.reviewItems.map((item) => (item.id === id ? { ...item, status, comment } : item)) }))
-    },
-    saveDraft(draft: string) {
-      update((state) => ({ ...state, draft }))
-    },
-    lock(revision: string) {
-      update((state) => ({ ...state, revision, locked: true }))
     },
   }
 }
 
 export const curriculumStore = createCurriculumStore()
-
-if (browser) {
-  curriculumStore.subscribe((state) => localStorage.setItem('curriculum-map-draft-v1', JSON.stringify(state)))
-}
 
 export function validateCurriculum(state: CurriculumState) {
   const issues: Array<{ id: string; severity: '错误' | '警告'; title: string; detail: string }> = []
@@ -62,3 +56,5 @@ export function validateCurriculum(state: CurriculumState) {
   })
   return issues
 }
+
+export type { GraphNode }

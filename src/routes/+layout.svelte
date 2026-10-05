@@ -2,6 +2,7 @@
   import { page } from '$app/state'
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
   import { curriculumStore } from '$lib/stores'
+  import type { View } from '$lib/server/curriculum'
   import '../app.css'
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -14,6 +15,11 @@
     { href: '/matrix', label: '映射图谱', icon: '图' },
     { href: '/review', label: '改革审阅', icon: '审' },
   ]
+
+  $effect(() => {
+    const view = page.data?.curriculum as View | undefined
+    if (view) curriculumStore.hydrate(view)
+  })
 </script>
 
 <svelte:head><title>{page.data?.title ?? '课程改革审阅平台'}</title></svelte:head>
@@ -27,7 +33,7 @@
           <a href={item.href} class:active={page.url.pathname === item.href} onclick={() => mobileOpen = false}><span>{item.icon}</span>{item.label}</a>
         {/each}
       </nav>
-      <div class="side-note"><strong>{$curriculumStore.locked ? '版本已锁定' : '草稿自动保存'}</strong><span>当前版本 {$curriculumStore.revision}</span></div>
+      <div class="side-note"><strong>{$curriculumStore.locked ? '版本已锁定' : '草稿版本 v' + $curriculumStore.version}</strong><span>当前版本 {$curriculumStore.revision} · 服务端统一版本</span></div>
     </aside>
     <main>
       <header class="mobile-header"><button onclick={() => mobileOpen = !mobileOpen}>菜单</button><strong>{page.data?.title ?? '课程标准映射'}</strong></header>

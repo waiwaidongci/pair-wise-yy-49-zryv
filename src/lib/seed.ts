@@ -21,7 +21,7 @@ export type ReviewItem = {
   requirementId: string
   evidence: string
   submitter: string
-  status: '待审阅' | '已附议' | '已退回'
+  status: '待审阅' | '已附议' | '已退回' | '已失效'
   comment: string
 }
 

@@ -1,21 +1,12 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query'
-  import { browser } from '$app/environment'
   import { curriculumStore, validateCurriculum } from '$lib/stores'
-  import type { GraphNode, Mapping, ReviewItem } from '$lib/seed'
 
-  type CurriculumResponse = { nodes: GraphNode[]; mappings: Mapping[]; reviewItems: ReviewItem[]; updatedAt: string }
-  const query = createQuery<CurriculumResponse>(() => ({
-    queryKey: ['curriculum'],
-    enabled: browser,
-    queryFn: async () => {
-      const response = await fetch('/api/curriculum')
-      return response.json()
-    },
-  }))
   const issues = $derived(validateCurriculum($curriculumStore))
   const reviewOpen = $derived($curriculumStore.reviewItems.filter((item) => item.status === '待审阅').length)
-  const covered = $derived($curriculumStore.nodes.filter((node) => node.type === '毕业要求' && $curriculumStore.mappings.some((mapping) => mapping.source === node.id)).length)
+  const reviewInvalid = $derived($curriculumStore.reviewItems.filter((item) => item.status === '已失效').length)
+  const covered = $derived($curriculumStore.coverage.filter((c) => c.covered).length)
+  const totalReq = $derived($curriculumStore.coverage.length)
+  const staleSnapshots = $derived($curriculumStore.snapshots.filter((s) => s.stale).length)
 </script>
 
 <svelte:head><title>课程标准映射总览</title></svelte:head>
@@ -28,14 +19,14 @@
 
   <div class="metric-grid">
     <article class="metric"><span>培养目标</span><strong>{$curriculumStore.nodes.filter((node) => node.type === '目标').length}</strong><small>2 条毕业要求主链</small></article>
-    <article class="metric"><span>毕业要求覆盖</span><strong>{covered}/{$curriculumStore.nodes.filter((node) => node.type === '毕业要求').length}</strong><small>{issues.filter((issue) => issue.severity === '错误').length} 个阻断缺口</small></article>
+    <article class="metric"><span>毕业要求覆盖</span><strong>{covered}/{totalReq}</strong><small>{issues.filter((issue) => issue.severity === '错误').length} 个阻断缺口</small></article>
     <article class="metric"><span>课程映射</span><strong>{$curriculumStore.mappings.length}</strong><small>含前置、教学与考核</small></article>
-    <article class="metric"><span>待审阅提交</span><strong style="color:#b45c34">{reviewOpen}</strong><small>院系审阅队列</small></article>
+    <article class="metric"><span>待审阅提交</span><strong style="color:#b45c34">{reviewOpen}</strong><small>{reviewInvalid} 项已失效 · 围绕草稿 v{$curriculumStore.version}</small></article>
   </div>
 
   <div class="overview-grid">
     <section class="panel">
-      <div class="panel-head"><h3>培养目标达成链</h3>{#if query.data}<span class="muted">数据更新 {query.data.updatedAt.slice(11,16)}</span>{/if}</div>
+      <div class="panel-head"><h3>培养目标达成链</h3><span class="muted">草稿 {$curriculumStore.revision} · v{$curriculumStore.version}</span></div>
       <div class="chain">
         {#each $curriculumStore.nodes.filter((node) => node.type === '目标') as objective}
           <article>
@@ -63,7 +54,7 @@
         {/each}
         {#if issues.length === 0}<div class="empty">未发现覆盖缺口或重复映射。</div>{/if}
       </div>
-      <div class="hint-box"><strong>当前草稿</strong><p>{$curriculumStore.draft}</p></div>
+      <div class="hint-box"><strong>当前草稿 · 服务端统一版本</strong><p>{$curriculumStore.draft}</p><p class="hint-meta">版本 v{$curriculumStore.version} · {$curriculumStore.revision} · 已发布基线 {$curriculumStore.snapshots.length} 个{#if staleSnapshots > 0} · <span class="stale">{staleSnapshots} 个基线引用已变更，覆盖结论已重算</span>{/if}{#if $curriculumStore.rejectedCount > 0} · {$curriculumStore.rejectedCount} 条过期提交已退回并留痕{/if}</p></div>
     </aside>
   </div>
 </section>
@@ -91,5 +82,7 @@
   .hint-box { margin: 0 16px 16px; padding: 13px; border-left: 3px solid #cd813a; background: #fff6e9; }
   .hint-box strong { font-size: 12px; }
   .hint-box p { margin: 6px 0 0; color: #6c6256; font-size: 11px; line-height: 1.5; }
+  .hint-box .hint-meta { margin-top: 8px; color: #8a7d6f; font-size: 10px; }
+  .hint-box .stale { color: #aa4933; font-weight: 700; }
   @media (max-width: 1000px) { .overview-grid { grid-template-columns: 1fr; } }
 </style>

@@ -10,9 +10,11 @@
   let relation = $state<Mapping['relation']>('支撑')
   let weight = $state(1)
   let query = $state('')
+  let writeOpId = $state(crypto.randomUUID())
   const issues = $derived(validateCurriculum($curriculumStore))
   const visibleIds = $derived(new Set($curriculumStore.nodes.filter((node) => !query || node.label.includes(query) || node.id.includes(query)).map((node) => node.id)))
   const selected = $derived($curriculumStore.nodes.find((item) => item.id === selectedNode))
+  const version = $derived($curriculumStore.version)
 
   function startDrag(event: MouseEvent, id: string) {
     const node = $curriculumStore.nodes.find((item) => item.id === id)
@@ -31,9 +33,40 @@
     curriculumStore.moveNode(dragging, Math.max(50, Math.min(1140, ((event.clientX - rect.left) / rect.width) * 1200 - offset.x)), Math.max(30, Math.min(480, ((event.clientY - rect.top) / rect.height) * 520 - offset.y)))
   }
 
-  function addMapping() {
+  async function addMapping() {
     if (source === target) return
-    curriculumStore.addMapping(source, target, relation, weight)
+    const res = await fetch('/api/curriculum/mappings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opId: writeOpId, baseVersion: version, source, target, relation, weight }),
+    })
+    const body = await res.json()
+    if (body.ok && body.view) {
+      curriculumStore.hydrate(body.view)
+      writeOpId = crypto.randomUUID()
+    } else if (res.status === 409 && body.reason === 'stale_version') {
+      alert('草稿版本已过期，请刷新页面后重试。未落地的连边已退回。')
+    } else {
+      alert(body.error || '新增连边失败。')
+    }
+  }
+
+  async function publishBaseline() {
+    const res = await fetch('/api/baselines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opId: writeOpId, baseVersion: version }),
+    })
+    const body = await res.json()
+    if (body.ok && body.view) {
+      curriculumStore.hydrate(body.view)
+      writeOpId = crypto.randomUUID()
+      alert(`已发布基线 ${body.view.snapshots[body.view.snapshots.length - 1]?.revision}，可在基线快照中查看。`)
+    } else if (res.status === 409 && body.reason === 'stale_version') {
+      alert('草稿版本已过期，请刷新页面后重试。')
+    } else {
+      alert(body.error || '发布基线失败。')
+    }
   }
 
   function exportMap() {
@@ -52,7 +85,7 @@
 <section class="page">
   <div class="page-head">
     <div><p class="eyebrow">CURRICULUM MAP / 映射图谱</p><h1>有向关系与覆盖矩阵</h1><p class="muted">拖动节点重新布局；连边关系持久保存，覆盖缺口会立即高亮。</p></div>
-    <div class="actions"><button class="btn-secondary" onclick={exportMap}>导出课程地图</button><button class="btn-primary" onclick={() => $curriculumStore.lock(`R${Number($curriculumStore.revision.slice(1)) + 1}`)}>锁定当前版本</button></div>
+    <div class="actions"><button class="btn-secondary" onclick={exportMap}>导出课程地图</button><button class="btn-primary" onclick={publishBaseline}>发布基线 {$curriculumStore.revision}</button></div>
   </div>
 
   <div class="matrix-toolbar panel">

@@ -2,9 +2,42 @@
   import { curriculumStore } from '$lib/stores'
   let selectedCourse = $state('C-308')
   let query = $state('')
+  let editing = $state(false)
+  let editLabel = $state('')
+  let writeOpId = $state(crypto.randomUUID())
   const types = ['课程', '单元', '教学活动', '考核'] as const
   const visible = $derived($curriculumStore.nodes.filter((node) => types.includes(node.type as typeof types[number]) && `${node.label}${node.id}`.includes(query)))
   const selected = $derived(visible.find((node) => node.id === selectedCourse) ?? visible[0])
+  const version = $derived($curriculumStore.version)
+
+  $effect(() => {
+    if (!editing) editLabel = selected?.label ?? ''
+  })
+
+  function startEdit() {
+    if (!selected) return
+    editLabel = selected.label
+    editing = true
+  }
+
+  async function saveNode() {
+    if (!selected) return
+    const res = await fetch('/api/curriculum/nodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opId: writeOpId, baseVersion: version, nodeId: selected.id, label: editLabel }),
+    })
+    const body = await res.json()
+    if (body.ok && body.view) {
+      curriculumStore.hydrate(body.view)
+      writeOpId = crypto.randomUUID()
+      editing = false
+    } else if (res.status === 409 && body.reason === 'stale_version') {
+      alert('草稿版本已过期，请刷新页面后重试。未落地的改动已退回。')
+    } else {
+      alert(body.error || '保存失败。')
+    }
+  }
 </script>
 
 <svelte:head><title>课程、单元与考核</title></svelte:head>
@@ -34,10 +67,18 @@
         <div class="panel-head"><h3>{selected.label.split('\n')[0]}</h3><span class="muted">{selected.id} · {selected.type}</span></div>
         <div class="detail-body">
           <div class="form-grid">
-            <label>节点名称<input value={selected.label.split('\n')[0]} /></label>
-            <label>节点类型<select value={selected.type}>{#each types as type}<option>{type}</option>{/each}</select></label>
+            <label>节点名称<input bind:value={editLabel} disabled={!editing} /></label>
+            <label>节点类型<select value={selected.type} disabled>{#each types as type}<option>{type}</option>{/each}</select></label>
             <label>所属学期<select><option>2026 秋季</option><option>2027 春季</option></select></label>
             <label>课程负责人<input value="顾明 / 副教授" /></label>
+          </div>
+          <div class="edit-actions">
+            {#if editing}
+              <button class="btn-primary" onclick={saveNode}>保存并触发重算</button>
+              <button class="btn-secondary" onclick={() => (editing = false)}>取消</button>
+            {:else}
+              <button class="btn-secondary" onclick={startEdit}>编辑节点信息</button>
+            {/if}
           </div>
           <h3>直接映射</h3>
           <div class="mapping-list">
@@ -69,6 +110,7 @@
   .type { padding: 3px 5px; border-radius: 4px; color: #3b6970; background: #e7eff0; text-align: center; font-size: 10px; }
   .type-课程 { color: #8b5529; background: #fff0df; }
   .detail-body { padding: 18px; }
+  .edit-actions { display: flex; gap: 8px; margin-top: 12px; }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .detail-body h3 { margin: 24px 0 10px; font-size: 14px; }
   .mapping-list { display: grid; gap: 7px; }

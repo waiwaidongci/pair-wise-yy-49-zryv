@@ -1,3 +1,5 @@
+import { getView } from '$lib/server/curriculum'
+
 export function load({ url }: { url: URL }) {
   const titles: Record<string, string> = {
     '/': '课程标准映射总览',
@@ -5,5 +7,5 @@ export function load({ url }: { url: URL }) {
     '/matrix': '映射图谱与覆盖矩阵',
     '/review': '课程改革审阅',
   }
-  return { title: titles[url.pathname] ?? '课程改革审阅平台' }
+  return { title: titles[url.pathname] ?? '课程改革审阅平台', curriculum: getView() }
 }
